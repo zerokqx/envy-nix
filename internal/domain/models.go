@@ -8,18 +8,21 @@ import (
 	"time"
 )
 
+// Environment constants for project classification.
 const (
 	EnvProd  = "prod"
 	EnvStage = "stage"
 	EnvDev   = "dev"
 )
 
+// SecretVersion represents a single version of a secret value with metadata.
 type SecretVersion struct {
 	Value     string    `json:"value"`
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by"`
 }
 
+// APIKey represents a named secret with its current value and version history.
 type APIKey struct {
 	Title   string          `json:"title"`
 	Key     string          `json:"key"`
@@ -27,12 +30,14 @@ type APIKey struct {
 	History []SecretVersion `json:"history"`
 }
 
+// Project groups related secrets under a name and environment.
 type Project struct {
 	Name        string   `json:"name"`
 	Environment string   `json:"environment"`
 	Keys        []APIKey `json:"keys"`
 }
 
+// Store is the top-level structure persisted to disk as encrypted JSON.
 type Store struct {
 	Version  int       `json:"version"`
 	Salt     string    `json:"salt"`
@@ -40,6 +45,7 @@ type Store struct {
 	Projects []Project `json:"projects"`
 }
 
+// ValidateProjectName checks that a project name is non-empty and within length limits.
 func ValidateProjectName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -51,6 +57,7 @@ func ValidateProjectName(name string) error {
 	return nil
 }
 
+// ValidateEnvironment checks that env is one of the allowed values (prod, dev, stage).
 func ValidateEnvironment(env string) error {
 	env = strings.TrimSpace(env)
 	if env != EnvProd && env != EnvDev && env != EnvStage {
@@ -59,6 +66,8 @@ func ValidateEnvironment(env string) error {
 	return nil
 }
 
+// ValidateKeyName checks that a key name is non-empty, within length limits,
+// and does not contain forbidden characters (=, newline, carriage return).
 func ValidateKeyName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {

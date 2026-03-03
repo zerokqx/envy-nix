@@ -71,9 +71,6 @@ func runWithSecrets(cmd *cobra.Command, args []string) error {
 	projectName := args[0]
 	commandArgs := args[separatorIndex+1:]
 
-	appConfig := config.LoadAppConfig()
-	storage.SetConfig(appConfig.Backend)
-
 	if err := config.EnsureDirectories(); err != nil {
 		return fmt.Errorf("failed to create directories: %w", err)
 	}

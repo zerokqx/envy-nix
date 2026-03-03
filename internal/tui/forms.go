@@ -246,9 +246,3 @@ func (m Model) viewCreate() string {
 		bottomBar.Render(),
 	)
 }
-
-// WARNING: This function is kept for compatibility but shouldn't be called directly
-func (m Model) viewEdit() string {
-	// This should not be called anymore - edit is now a sidebar
-	return m.viewDetail()
-}

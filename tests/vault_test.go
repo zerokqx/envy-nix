@@ -215,7 +215,7 @@ func TestUpdateKey(t *testing.T) {
 	originalValue := proj.Keys[0].Current.Value
 
 	// Update
-	err := vault.UpdateKey("project", "dev", "API_KEY", "new-value")
+	err := vault.UpdateKey("project", "dev", "API_KEY", "new-value", "test")
 	if err != nil {
 		t.Fatalf("UpdateKey() error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestUpdateKey(t *testing.T) {
 	}
 
 	// Update non-existent key
-	err = vault.UpdateKey("project", "dev", "NONEXISTENT", "value")
+	err = vault.UpdateKey("project", "dev", "NONEXISTENT", "value", "test")
 	if err == nil {
 		t.Error("UpdateKey() should return error for non-existent key")
 	}

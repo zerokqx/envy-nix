@@ -20,6 +20,7 @@ const (
 // Store configuration: set by main before use
 var storeConfig config.BackendConfig
 
+// SetConfig sets the storage backend configuration (file paths for vault and lock).
 func SetConfig(cfg config.BackendConfig) {
 	storeConfig = cfg
 }
@@ -38,6 +39,7 @@ func getStorePath() string {
 	return config.GetDefaultKeysPath()
 }
 
+// IsFirstRun returns true if no vault file exists yet.
 func IsFirstRun() (bool, error) {
 	path := getStorePath()
 
@@ -51,6 +53,7 @@ func IsFirstRun() (bool, error) {
 	return false, nil
 }
 
+// Initialize creates a new empty vault with the given master password.
 func Initialize(password string) error {
 	salt, err := crypto.GenerateSalt()
 	if err != nil {
@@ -90,15 +93,20 @@ func saveStore(store domain.Store) error {
 	return saveStoreUnlocked(store)
 }
 
+// Load decrypts and returns all projects and the derived encryption key.
 func Load(password string) ([]domain.Project, []byte, error) {
 	path := getStorePath()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []domain.Project{}, nil, nil
+			return nil, nil, fmt.Errorf("vault file not found: %s", path)
 		}
 		return nil, nil, fmt.Errorf("failed to read storage file: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, nil, fmt.Errorf("vault file is empty: %s", path)
 	}
 
 	var store domain.Store
@@ -125,6 +133,7 @@ func Load(password string) ([]domain.Project, []byte, error) {
 	return decryptedProjects, key, nil
 }
 
+// Save encrypts and persists all projects to the vault file.
 func Save(projects []domain.Project, key []byte) error {
 	lockPath := getLockPath()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
@@ -284,6 +293,7 @@ func saveStoreUnlocked(store domain.Store) error {
 	return nil
 }
 
+// CreateBackup copies the current vault file to a .backup file.
 func CreateBackup() error {
 	path := getStorePath()
 

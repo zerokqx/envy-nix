@@ -43,7 +43,7 @@ type Theme struct {
 	CardHeight int `json:"card_height"`
 }
 
-// Default theme: Catppuccin Mocha
+// DefaultTheme returns the default Catppuccin Mocha color theme.
 func DefaultTheme() Theme {
 	return Theme{
 		Base:     "#1e1e2e",
@@ -77,6 +77,7 @@ func DefaultTheme() Theme {
 	}
 }
 
+// LoadTheme reads theme settings from the JSON config file, falling back to defaults.
 func LoadTheme() Theme {
 	configPath := getThemePath()
 	data, err := os.ReadFile(configPath)
@@ -93,11 +94,12 @@ func LoadTheme() Theme {
 	return theme
 }
 
+// SaveTheme writes theme settings to the JSON config file.
 func SaveTheme(theme Theme) error {
 	configPath := getThemePath()
 
 	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return err
 	}
 
@@ -106,7 +108,7 @@ func SaveTheme(theme Theme) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0o644)
+	return os.WriteFile(configPath, data, 0o600)
 }
 
 func getThemePath() string {
@@ -162,22 +164,23 @@ func mergeWithDefaults(theme Theme) Theme {
 	if theme.PreviousBg == "" {
 		theme.PreviousBg = defaults.PreviousBg
 	}
-	if theme.GridCols == 0 {
+	if theme.GridCols <= 0 {
 		theme.GridCols = defaults.GridCols
 	}
-	if theme.GridVisibleRows == 0 {
+	if theme.GridVisibleRows <= 0 {
 		theme.GridVisibleRows = defaults.GridVisibleRows
 	}
-	if theme.CardWidth == 0 {
+	if theme.CardWidth <= 0 {
 		theme.CardWidth = defaults.CardWidth
 	}
-	if theme.CardHeight == 0 {
+	if theme.CardHeight <= 0 {
 		theme.CardHeight = defaults.CardHeight
 	}
 
 	return theme
 }
 
+// Styles holds resolved lipgloss colors and pre-built component styles.
 type Styles struct {
 	Base     lipgloss.Color
 	Text     lipgloss.Color
@@ -212,6 +215,7 @@ type Styles struct {
 	FullCardWidth   int
 }
 
+// NewStyles creates a Styles from a Theme, initializing all lipgloss styles.
 func NewStyles(theme Theme) Styles {
 	s := Styles{
 		Base:       lipgloss.Color(theme.Base),
@@ -276,6 +280,7 @@ func NewStyles(theme Theme) Styles {
 	return s
 }
 
+// RenderEnvironmentBadge returns a styled badge string for the given environment.
 func (s Styles) RenderEnvironmentBadge(env string) string {
 	switch env {
 	case "prod":

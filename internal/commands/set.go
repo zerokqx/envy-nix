@@ -8,6 +8,7 @@ import (
 	"envy/internal/auth"
 	"envy/internal/config"
 	"envy/internal/domain"
+	"envy/internal/service"
 	"envy/internal/storage"
 
 	"github.com/spf13/cobra"
@@ -76,9 +77,6 @@ func performSet(projectName, keyValuePair, environment string) error {
 		return fmt.Errorf("invalid environment: %w", err)
 	}
 
-	appConfig := config.LoadAppConfig()
-	storage.SetConfig(appConfig.Backend)
-
 	if err := config.EnsureDirectories(); err != nil {
 		return fmt.Errorf("failed to create directories: %w", err)
 	}
@@ -102,23 +100,18 @@ func performSet(projectName, keyValuePair, environment string) error {
 		return fmt.Errorf("failed to load vault: %w", err)
 	}
 
-	var project *domain.Project
-	projectIndex := -1
-	for i := range projects {
-		if projects[i].Name == projectName && projects[i].Environment == environment {
-			project = &projects[i]
-			projectIndex = i
-			break
-		}
-	}
+	vault := service.NewVaultService(projects, key)
+
+	// Use case-insensitive lookup (P2 #11)
+	project, err := vault.FindProject(projectName, environment)
 
 	// If project doesn't exist, ask to create it
-	if project == nil {
+	if err != nil {
 		fmt.Printf("Project '%s' (%s) not found.\n", projectName, environment)
 		fmt.Println("Tip: Check the environment and use -e {environment} to specify it. Default is 'dev'.")
-		confirm, err := auth.PromptText("Create new project? [y/N]: ")
-		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
+		confirm, promptErr := auth.PromptText("Create new project? [y/N]: ")
+		if promptErr != nil {
+			return fmt.Errorf("failed to read input: %w", promptErr)
 		}
 
 		if strings.ToLower(confirm) != "y" && strings.ToLower(confirm) != "yes" {
@@ -131,33 +124,33 @@ func performSet(projectName, keyValuePair, environment string) error {
 			Environment: environment,
 			Keys:        []domain.APIKey{},
 		}
-		projects = append(projects, newProject)
-		projectIndex = len(projects) - 1
-		project = &projects[projectIndex]
+		if createErr := vault.CreateProject(newProject); createErr != nil {
+			return fmt.Errorf("failed to create project: %w", createErr)
+		}
 		fmt.Printf("Created project '%s' (%s)\n", projectName, environment)
+
+		project, err = vault.GetProject(projectName, environment)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve created project: %w", err)
+		}
 	}
 
 	// Check if key already exists
 	keyExists := false
-	for i, k := range project.Keys {
+	for _, k := range project.Keys {
 		if k.Key == keyName {
 			keyExists = true
-			// Update existing key - old one is moved to history
-			oldValue := project.Keys[i].Current
-			project.Keys[i].History = append(project.Keys[i].History, oldValue)
-			project.Keys[i].Current = domain.SecretVersion{
-				Value:     keyValue,
-				CreatedAt: time.Now(),
-				CreatedBy: "cli-set",
-			}
-			fmt.Printf("Updated '%s' in project '%s' (%s)\n", keyName, projectName, environment)
-			fmt.Printf("  Old value saved to history\n")
 			break
 		}
 	}
 
-	// Add new key if it doesn't exist
-	if !keyExists {
+	if keyExists {
+		if err := vault.UpdateKey(project.Name, project.Environment, keyName, keyValue, "cli-set"); err != nil {
+			return fmt.Errorf("failed to update key: %w", err)
+		}
+		fmt.Printf("Updated '%s' in project '%s' (%s)\n", keyName, project.Name, project.Environment)
+		fmt.Printf("  Old value saved to history\n")
+	} else {
 		newKey := domain.APIKey{
 			Title: keyName,
 			Key:   keyName,
@@ -168,11 +161,13 @@ func performSet(projectName, keyValuePair, environment string) error {
 			},
 			History: []domain.SecretVersion{},
 		}
-		project.Keys = append(project.Keys, newKey)
-		fmt.Printf("Added '%s' to project '%s' (%s)\n", keyName, projectName, environment)
+		if err := vault.AddKey(project.Name, project.Environment, newKey); err != nil {
+			return fmt.Errorf("failed to add key: %w", err)
+		}
+		fmt.Printf("Added '%s' to project '%s' (%s)\n", keyName, project.Name, project.Environment)
 	}
 
-	if err := storage.Save(projects, key); err != nil {
+	if err := vault.Save(); err != nil {
 		return fmt.Errorf("failed to save vault: %w", err)
 	}
 

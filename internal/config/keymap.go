@@ -87,6 +87,7 @@ func DefaultKeyMap() KeyMap {
 	}
 }
 
+// LoadKeyMap reads keybindings from the JSON config file, falling back to defaults.
 func LoadKeyMap() KeyMap {
 	configPath := getConfigPath()
 	data, err := os.ReadFile(configPath)
@@ -102,11 +103,12 @@ func LoadKeyMap() KeyMap {
 	return km
 }
 
+// SaveKeyMap writes keybindings to the JSON config file.
 func SaveKeyMap(km KeyMap) error {
 	configPath := getConfigPath()
 
 	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return err
 	}
 
@@ -115,14 +117,18 @@ func SaveKeyMap(km KeyMap) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0o644)
+	return os.WriteFile(configPath, data, 0o600)
 }
 
 func getConfigPath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".config", "envy", "keymap.json")
+	}
 	return filepath.Join(home, ".config", "envy", "keymap.json")
 }
 
+// MatchesKey returns true if the pressed key matches any of the given bindings.
 func (km KeyMap) MatchesKey(key string, bindings ...string) bool {
 	for _, binding := range bindings {
 		if key == binding {
@@ -132,18 +138,22 @@ func (km KeyMap) MatchesKey(key string, bindings ...string) bool {
 	return false
 }
 
+// IsNavigationUp returns true if the key matches an upward navigation binding.
 func (km KeyMap) IsNavigationUp(key string) bool {
 	return km.MatchesKey(key, km.Up, km.VimUp)
 }
 
+// IsNavigationDown returns true if the key matches a downward navigation binding.
 func (km KeyMap) IsNavigationDown(key string) bool {
 	return km.MatchesKey(key, km.Down, km.VimDown)
 }
 
+// IsNavigationLeft returns true if the key matches a leftward navigation binding.
 func (km KeyMap) IsNavigationLeft(key string) bool {
 	return km.MatchesKey(key, km.Left, km.VimLeft)
 }
 
+// IsNavigationRight returns true if the key matches a rightward navigation binding.
 func (km KeyMap) IsNavigationRight(key string) bool {
 	return km.MatchesKey(key, km.Right, km.VimRight)
 }

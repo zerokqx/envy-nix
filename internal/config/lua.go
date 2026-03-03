@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// AppConfig holds all application configuration sections.
 type AppConfig struct {
 	Backend BackendConfig
 
@@ -17,12 +19,14 @@ type AppConfig struct {
 	Theme Theme
 }
 
+// BackendConfig specifies file paths for the vault data and lock files.
 type BackendConfig struct {
 	KeysPath string
 
 	LockPath string
 }
 
+// DefaultBackendConfig returns a BackendConfig with platform-appropriate default paths.
 func DefaultBackendConfig() BackendConfig {
 	return BackendConfig{
 		KeysPath: GetDefaultKeysPath(),
@@ -30,6 +34,7 @@ func DefaultBackendConfig() BackendConfig {
 	}
 }
 
+// DefaultAppConfig returns an AppConfig with all default values.
 func DefaultAppConfig() AppConfig {
 	return AppConfig{
 		Backend: DefaultBackendConfig(),
@@ -38,14 +43,17 @@ func DefaultAppConfig() AppConfig {
 	}
 }
 
+// GetConfigDir returns the path to the application configuration directory.
 func GetConfigDir() string {
 	return GetDefaultConfigDir()
 }
 
+// GetLuaConfigPath returns the path to the Lua configuration file.
 func GetLuaConfigPath() string {
 	return GetDefaultConfigPath()
 }
 
+// LoadAppConfig loads configuration from the Lua config file, falling back to defaults.
 func LoadAppConfig() AppConfig {
 	config := DefaultAppConfig()
 
@@ -60,6 +68,7 @@ func LoadAppConfig() AppConfig {
 	registerConfigFunctions(L)
 
 	if err := L.DoFile(luaPath); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to parse Lua config %s: %v\n", luaPath, err)
 		return config
 	}
 
@@ -73,7 +82,10 @@ func LoadAppConfig() AppConfig {
 func registerConfigFunctions(L *lua.LState) {
 	envyMod := L.NewTable()
 
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
 	L.SetField(envyMod, "home", lua.LString(home))
 
 	L.SetField(envyMod, "os", lua.LString(runtime.GOOS))
@@ -84,9 +96,12 @@ func registerConfigFunctions(L *lua.LState) {
 
 	L.SetField(envyMod, "expand_path", L.NewFunction(func(L *lua.LState) int {
 		path := L.CheckString(1)
-		home, _ := os.UserHomeDir()
+		h, err := os.UserHomeDir()
+		if err != nil {
+			h = "."
+		}
 		if len(path) > 0 && path[0] == '~' {
-			path = filepath.Join(home, path[1:])
+			path = filepath.Join(h, path[1:])
 		}
 		L.Push(lua.LString(path))
 		return 1
@@ -295,12 +310,16 @@ func extractTheme(L *lua.LState, defaults Theme) Theme {
 // expandPath expands ~ to home directory
 func expandPath(path string) string {
 	if len(path) > 0 && path[0] == '~' {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
 		return filepath.Join(home, path[1:])
 	}
 	return path
 }
 
+// EnsureDataDir creates the data directory for the vault file if it does not exist.
 func EnsureDataDir(config BackendConfig) error {
 	dir := filepath.Dir(config.KeysPath)
 	return os.MkdirAll(dir, 0o700)

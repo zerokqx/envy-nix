@@ -8,11 +8,13 @@ import (
 
 	"envy/internal/auth"
 	"envy/internal/domain"
+	"envy/internal/service"
 	"envy/internal/storage"
 
 	"github.com/hashicorp/go-envparse"
 )
 
+// RunImport imports secrets from a .env file into the vault.
 func RunImport(filePath string) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -101,17 +103,24 @@ func RunImport(filePath string) {
 		}
 	}
 
-	for i, p := range projects {
-		if p.Name == name && p.Environment == env {
-			fmt.Printf("Project '%s' (%s) already exists. Overwrite? [y/N]: ", name, env)
-			var response string
-			fmt.Scanln(&response)
-			if strings.ToLower(response) != "y" {
-				fmt.Println("Import cancelled.")
-				return
-			}
-			projects = append(projects[:i], projects[i+1:]...)
-			break
+	vault := service.NewVaultService(projects, key)
+
+	// Use case-insensitive lookup (P2 #11)
+	existing, findErr := vault.FindProject(name, env)
+	if findErr == nil {
+		response, promptErr := auth.PromptText(fmt.Sprintf("Project '%s' (%s) already exists. Overwrite? [y/N]: ", existing.Name, existing.Environment))
+		if promptErr != nil {
+			fmt.Printf("Error: %v\n", promptErr)
+			return
+		}
+		if strings.ToLower(response) != "y" {
+			fmt.Println("Import cancelled.")
+			return
+		}
+		// Remove the existing project before re-creating
+		if err := vault.DeleteProject(existing.Name, existing.Environment); err != nil {
+			fmt.Printf("Error removing existing project: %v\n", err)
+			return
 		}
 	}
 
@@ -140,9 +149,12 @@ func RunImport(filePath string) {
 		Keys:        newKeys,
 	}
 
-	projects = append(projects, newProject)
+	if err := vault.CreateProject(newProject); err != nil {
+		fmt.Printf("Error creating project: %v\n", err)
+		return
+	}
 
-	if err := storage.Save(projects, key); err != nil {
+	if err := vault.Save(); err != nil {
 		fmt.Printf("Error saving to vault: %v\n", err)
 		return
 	}

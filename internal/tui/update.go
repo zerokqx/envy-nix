@@ -12,6 +12,16 @@ import (
 
 type statusClearMsg struct{}
 
+// persistAndSync saves the vault to disk and refreshes the TUI's project list.
+func (m *Model) persistAndSync() error {
+	if err := m.vault.Save(); err != nil {
+		return err
+	}
+	m.projects = m.vault.GetProjects()
+	m.RefreshFiltered()
+	return nil
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -209,9 +219,14 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusMsg = "Failed to copy"
 		} else {
 			m.statusMsg = "Copied (will clear in 30s)"
+			copiedVal := val // capture value before goroutine
 			go func() {
 				time.Sleep(30 * time.Second)
-				clipboard.WriteAll("")
+				// Only clear if clipboard still contains the value we copied
+				current, err := clipboard.ReadAll()
+				if err == nil && current == copiedVal {
+					clipboard.WriteAll("")
+				}
 			}()
 		}
 		return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
@@ -412,13 +427,11 @@ func (m Model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			if err := m.vault.Save(); err != nil {
+			if err := m.persistAndSync(); err != nil {
 				m.statusMsg = "ERROR: Failed to save"
 				return m, nil
 			}
 
-			m.projects = m.vault.GetProjects()
-			m.RefreshFiltered()
 			m.currentView = ViewGrid
 			m.state = StateNormal
 		}
@@ -478,21 +491,19 @@ func (m Model) updateEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		newValue := m.editInput.Value()
 		keyName := m.activeProject.Keys[m.detailCursor].Key
 
-		if err := m.vault.UpdateKey(m.activeProject.Name, m.activeProject.Environment, keyName, newValue); err != nil {
+		if err := m.vault.UpdateKey(m.activeProject.Name, m.activeProject.Environment, keyName, newValue, "tui-edit"); err != nil {
 			m.statusMsg = "ERROR: " + err.Error()
 			return m, nil
 		}
 
-		if err := m.vault.Save(); err != nil {
+		if err := m.persistAndSync(); err != nil {
 			m.statusMsg = "ERROR: Failed to save"
 			return m, nil
 		}
 
-		m.projects = m.vault.GetProjects()
 		if proj, err := m.vault.GetProject(m.activeProject.Name, m.activeProject.Environment); err == nil {
 			m.activeProject = *proj
 		}
-		m.RefreshFiltered()
 
 		m.statusMsg = "Updated"
 		m.editSidebarOpen = false
@@ -526,15 +537,12 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				if err := m.vault.Save(); err != nil {
+				if err := m.persistAndSync(); err != nil {
 					m.statusMsg = "ERROR: Failed to save"
 					m.currentView = m.previousView
 					m.confirmAction = ConfirmNone
 					return m, nil
 				}
-
-				m.projects = m.vault.GetProjects()
-				m.RefreshFiltered()
 
 				if m.selectedIdx >= len(m.filtered) {
 					m.selectedIdx = len(m.filtered) - 1
@@ -556,18 +564,16 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				if err := m.vault.Save(); err != nil {
+				if err := m.persistAndSync(); err != nil {
 					m.statusMsg = "ERROR: Failed to save"
 					m.currentView = m.previousView
 					m.confirmAction = ConfirmNone
 					return m, nil
 				}
 
-				m.projects = m.vault.GetProjects()
 				if proj, err := m.vault.GetProject(m.activeProject.Name, m.activeProject.Environment); err == nil {
 					m.activeProject = *proj
 				}
-				m.RefreshFiltered()
 
 				if m.detailCursor >= len(m.activeProject.Keys) {
 					m.detailCursor = len(m.activeProject.Keys) - 1
@@ -655,13 +661,11 @@ func (m Model) saveNewProject() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := m.vault.Save(); err != nil {
+	if err := m.persistAndSync(); err != nil {
 		m.statusMsg = "ERROR: Failed to save"
 		return m, nil
 	}
 
-	m.projects = m.vault.GetProjects()
-	m.RefreshFiltered()
 	m.currentView = ViewGrid
 	m.state = StateNormal
 	return m, nil
@@ -822,7 +826,7 @@ func (m Model) addKeyToProject() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if err := m.vault.Save(); err != nil {
+	if err := m.persistAndSync(); err != nil {
 		m.statusMsg = "ERROR: Failed to save"
 		return m, nil
 	}
@@ -830,8 +834,6 @@ func (m Model) addKeyToProject() (tea.Model, tea.Cmd) {
 	if proj, err := m.vault.GetProject(m.activeProject.Name, m.activeProject.Environment); err == nil {
 		m.activeProject = *proj
 	}
-	m.projects = m.vault.GetProjects()
-	m.RefreshFiltered()
 
 	m.editProjectNewKey[0].SetValue("")
 	m.editProjectNewKey[1].SetValue("")
@@ -883,12 +885,17 @@ func (m Model) saveProjectChanges() (tea.Model, tea.Cmd) {
 		updatedProject := m.activeProject
 		updatedProject.Name = newName
 
-		if err := m.vault.UpdateProject(updatedProject); err != nil {
+		oldName := m.activeProject.Name
+		oldEnv := m.activeProject.Environment
+
+		if err := m.vault.UpdateProject(oldName, oldEnv, updatedProject); err != nil {
 			m.statusMsg = err.Error()
 			return m, nil
 		}
 
 		if err := m.vault.Save(); err != nil {
+			// Rollback: revert the in-memory rename on save failure
+			_ = m.vault.UpdateProject(newName, oldEnv, m.activeProject)
 			m.statusMsg = "ERROR: Failed to save"
 			return m, nil
 		}

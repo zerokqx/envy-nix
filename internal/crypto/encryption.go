@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -15,15 +16,17 @@ import (
 const (
 	saltSize = 16
 	keySize  = 32
-	time     = 1
+	timeCost = 3 // OWASP minimum for Argon2id interactive use
 	memory   = 64 * 1024
 	threads  = 4
 )
 
+// DeriveKey derives an encryption key from a password and salt using Argon2id.
 func DeriveKey(password string, salt []byte) []byte {
-	return argon2.IDKey([]byte(password), salt, time, memory, threads, keySize)
+	return argon2.IDKey([]byte(password), salt, timeCost, memory, threads, keySize)
 }
 
+// GenerateSalt generates a cryptographically random salt for key derivation.
 func GenerateSalt() ([]byte, error) {
 	salt := make([]byte, saltSize)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -32,15 +35,21 @@ func GenerateSalt() ([]byte, error) {
 	return salt, nil
 }
 
+// GenerateAuthHash generates a SHA-256 hash of the encryption key for authentication verification.
 func GenerateAuthHash(key []byte) string {
 	hash := sha256.Sum256(key)
 	return base64.StdEncoding.EncodeToString(hash[:])
 }
 
+// VerifyAuthHash verifies the auth hash using constant-time comparison
+// to prevent timing attacks.
 func VerifyAuthHash(key []byte, authHash string) bool {
-	return GenerateAuthHash(key) == authHash
+	expected := GenerateAuthHash(key)
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(authHash)) == 1
 }
 
+// Encrypt encrypts plaintext using AES-256-GCM with a random nonce and returns
+// the base64-encoded ciphertext.
 func Encrypt(plaintext []byte, key []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -61,6 +70,7 @@ func Encrypt(plaintext []byte, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// Decrypt decodes and decrypts a base64-encoded AES-256-GCM ciphertext.
 func Decrypt(encodedCiphertext string, key []byte) ([]byte, error) {
 	ciphertext, err := base64.StdEncoding.DecodeString(encodedCiphertext)
 	if err != nil {

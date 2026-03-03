@@ -34,9 +34,21 @@ func PromptNewPassword() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	if len(password) < 8 {
-		return "", fmt.Errorf("password must be at least 8 characters")
+		for {
+			fmt.Println("Are you sure? A strong password should be at least 8 characters long.")
+			confirm, err := PromptText("Do you want to use a weak password? (y/n): ")
+			if err != nil {
+				return "", err
+			}
+			if strings.ToLower(confirm) == "y" {
+				break
+			}
+			password, err = PromptPassword("Create master password: ")
+			if err != nil {
+				return "", err
+			}
+		}
 	}
 
 	confirm, err := PromptPassword("Confirm master password: ")
